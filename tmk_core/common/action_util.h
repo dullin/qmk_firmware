@@ -19,6 +19,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <stdint.h>
 #include "report.h"
+#include "action.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -87,6 +88,11 @@ void oneshot_layer_changed_kb(uint8_t layer);
 
 /* inspect */
 uint8_t has_anymod(void);
+
+bool run_on_modifiers(uint8_t modifier_mask, int16_t layer, uint16_t keycode,  keyrecord_t *record,
+                      void *data, bool (*handler)(uint16_t keycode,  keyrecord_t *record, void *data));
+
+bool custom_keycode_on_modifiers(uint8_t modifier_mask, int16_t layer, keyrecord_t *record, uint16_t custom_keycode);
 
 #ifdef __cplusplus
 }
