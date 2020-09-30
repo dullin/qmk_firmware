@@ -26,7 +26,6 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
         update_tri_layer(_LOWER, _RAISE, _ADJUST);
       }
       return false;
-      break;
     case RAISE:
       if (record->event.pressed) {
         layer_on(_RAISE);
@@ -36,7 +35,6 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
         update_tri_layer(_LOWER, _RAISE, _ADJUST);
       }
       return false;
-      break;
     }
   return true;
 }
@@ -45,7 +43,9 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
 ### `update_tri_layer_state(state, x, y, z)`
 The other function is `update_tri_layer_state(state, x, y, z)`.  This function is meant to be called from the [`layer_state_set_*` functions](custom_quantum_functions.md#layer-change-code).  This means that any time that you use a keycode to change the layer, this will be checked.  So you could use `LT(layer, kc)` to change the layer and it will trigger the same layer check.
 
-The caveat to this method is that you cannot access the `z` layer without having `x` and `y` layers on, since if you try to activate just layer `z`, it will run this code and turn off layer `z` before you could use it.
+There are a couple of caveats to this method:
+1. You cannot access the `z` layer without having `x` and `y` layers on, since if you try to activate just layer `z`, it will run this code and turn off layer `z` before you could use it.
+2. Because layers are processed from the highest number `z` should be a higher layer than `x` and `y` or you may not be able to access it.
 
 #### Example
 
@@ -99,7 +99,7 @@ To wipe the EEPROM, run `eeconfig_init()` from your function or macro to reset m
 
 ## Tap random key
 
-If you want to send a random character to the host computer, you can use the `tap_random_base64()` function. This [pseudorandomly](https://en.wikipedia.org/wiki/Pseudorandom_number_generator) selects a number between 0 and 63, and then sends a key press based on that selection. (0–25 is `A`–`Z`, 26–51 is `a`–`z`, 52–61 is `0`–`9`, 62 is `+` and 63 is `/`).  
+If you want to send a random character to the host computer, you can use the `tap_random_base64()` function. This [pseudorandomly](https://en.wikipedia.org/wiki/Pseudorandom_number_generator) selects a number between 0 and 63, and then sends a key press based on that selection. (0–25 is `A`–`Z`, 26–51 is `a`–`z`, 52–61 is `0`–`9`, 62 is `+` and 63 is `/`).
 
 ?> Needless to say, but this is _not_ a cryptographically secure method of generating random Base64 keys or passwords.
 
@@ -117,3 +117,46 @@ if (timer_elapsed(key_timer) < 100) {
   // do something if 100ms or more have passed
 }
 ```
+## Custom modified keycode handling
+
+Sometimes you might want to send a specific keycode or execute a specific macro when some modifiers and a key are pressed. For example let's say that your keymap binds a shifted keycode like question mark (?) on a qwerty keyboard to a key. When pressed, qmk will send these events: shift pressed, slash (/) pressed, slash released, shift released. But then what happens when pressing shift and that key? QMK Firmware will send shift pressed, slash pressed, slash released and shift released. The OS won't be able to distinguish between the two and you might just have lost a useful key combo on your shiny new keymap. This is where the `custom_keycode_on_modifiers` function comes in. It can be used to have QMK Firmware send another keycode when some modifiers are pressed. Its prototype is
+
+```c
+bool custom_keycode_on_modifiers(uint8_t modifier_mask, uint8_t layer, keyrecord_t *record, uint16_t custom_keycode)
+```
+
+The first argument is the modifiers that must be held for the custom keycode to be sent. Use the `MOD_BIT(keycode)` macro to create it. The second argument is the layer that must be active for the custom keycode to be sent. Use -1 if it must be available on all layers. The third argument is the key record being processed and the last one is the custom keycode you want to set when the modifiers and layer conditions are met. For example:
+
+```c
+bool process_record_user(uint16_t keycode, keyrecord_t *record) {
+  switch(keycode) {
+    case KC_QUESTION:
+      return custom_keycode_on_modifiers(MOD_BIT(KC_LSHIFT), -1, record,  KC_EXCLAIM);
+  }
+
+  return true;
+}
+
+```
+
+When ? is pressed and left shift is hold, on any layer, send !. You can combine multiple modifiers like this:
+
+```c
+MOD_BIT(KC_LSHIFT) | MOD_BIT(KC_LCTRL)
+```
+
+This means that left shift and left control must be held for the custom keycode to register. If you want to send the custom keycode on both left and right shift, you'll have to call the function twice:
+
+```c
+return custom_keycode_on_modifiers(MOD_BIT(KC_LSHIFT), -1, record,  KC_EXCLAIM) && custom_keycode_on_modifiers(MOD_BIT(KC_RSHIFT), -1, record,  KC_EXCLAIM);
+```
+
+If you need to do something else than registering a keycode, you can use the `run_on_modifiers` function. It is used internaly by the
+`custom_keycode_on_modifiers` function. It's prototype is
+
+```c
+bool run_on_modifiers(uint8_t modifier_mask, int16_t layer, uint16_t keycode,  keyrecord_t *record,
+                      void *data,  bool (*handler)(uint16_t keycode,  keyrecord_t *record, void *data))
+```
+
+The two first arguments are the same as the `custom_keycode_on_modifiers` function. The `keycode` argument is the currently processed key code, the `record` argument is the currently processed record. The last argument is a function pointer that will be called with the current key code, the current record and any data you have given as the `data` argument when the modifiers are layer conditions are met. This function will send to the os a release event for the currently hold modifiers, run your code and then make sure that the internal qmk state is consistent when releasing the key.
